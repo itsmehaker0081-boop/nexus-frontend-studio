@@ -23,6 +23,7 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
+    console.log('🚀 API Request:', url, options);
     
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -39,36 +40,46 @@ class ApiClient {
       credentials: 'include',
     };
 
-    const response = await fetch(url, config);
-
-    if (response.status === 401) {
-      // Try to refresh token
-      try {
-        const refreshResponse = await this.refreshToken();
-        if (refreshResponse.success) {
-          this.setToken(refreshResponse.data.accessToken);
-          // Retry original request
-          headers.Authorization = `Bearer ${refreshResponse.data.accessToken}`;
-          const retryResponse = await fetch(url, { ...config, headers });
-          if (!retryResponse.ok) {
-            throw new Error(`HTTP error! status: ${retryResponse.status}`);
+    try {
+      console.log('📡 Making fetch request to:', url);
+      const response = await fetch(url, config);
+      console.log('📥 Response received:', response.status, response.statusText);
+      
+      if (response.status === 401) {
+        // Try to refresh token
+        try {
+          const refreshResponse = await this.refreshToken();
+          if (refreshResponse.success) {
+            this.setToken(refreshResponse.data.accessToken);
+            // Retry original request
+            headers.Authorization = `Bearer ${refreshResponse.data.accessToken}`;
+            const retryResponse = await fetch(url, { ...config, headers });
+            if (!retryResponse.ok) {
+              throw new Error(`HTTP error! status: ${retryResponse.status}`);
+            }
+            return retryResponse.json();
           }
-          return retryResponse.json();
+        } catch {
+          // Refresh failed, redirect to login
+          this.setToken(null);
+          window.location.href = '/auth';
+          throw new Error('Authentication failed');
         }
-      } catch {
-        // Refresh failed, redirect to login
-        this.setToken(null);
-        window.location.href = '/auth';
-        throw new Error('Authentication failed');
       }
-    }
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      console.error('❌ API Request failed:', error);
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('Cannot connect to backend server. Make sure your backend is running on localhost:8000');
+      }
+      throw error;
+    }
   }
 
   // Auth endpoints
